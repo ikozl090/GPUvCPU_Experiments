@@ -5,6 +5,9 @@
 #include <sys/time.h>
 #include <lapacke.h>
 
+#define NUM_GPUS 2
+#define MAX_PRINTABLE_MATRIX_DIM 15
+
 int main(int argc, char *argv[]) {
 
     // Ensure matrix dimension was given
@@ -14,8 +17,6 @@ int main(int argc, char *argv[]) {
     }
 
     int input = atoi(argv[1]);  // Convert the argument to an integer
-    
-    int MAX_PRINTABLE_MATRIX_DIM = 15; 
 
     // Print matrices if below max printable dimension 
     bool print_matrices = false;
@@ -77,15 +78,37 @@ int main(int argc, char *argv[]) {
     gettimeofday(&start_time, NULL); // Get start time 
 
     // Variables to keep track of memory usage 
-    size_t freeMemBefore, totalMemBefore, freeMemAfter, totalMemAfter;
-    cudaMemGetInfo(&freeMemBefore, &totalMemBefore); // Save initial memory before program exacution 
+    size_t freeMemBefore[NUM_GPUS], totalMemBefore[NUM_GPUS], freeMemAfter[NUM_GPUS], totalMemAfter[NUM_GPUS];
 
     // Allocate GPU memory for matrices 
     cudaMalloc((void **)&d_A, size_A); 
     cudaMalloc((void **)&d_b, size_b); 
 
-    // Display initial and free memory 
-    printf("Amout of free memory in GPU before exacution is %.4f GB out of %.4f GB total.\n", ((double)freeMemBefore)/(1000000000), ((double)totalMemBefore)/(1000000000));
+    // Display initial and free memory for all GPUs
+    for (int i = 0; i < NUM_GPUS; i++) {
+        // Set the GPU you want to use
+        int gpu_id = i; // Replace with the GPU ID you want to use
+        cudaError_t err = cudaSetDevice(gpu_id);
+
+        if (err != cudaSuccess) {
+            printf("Error setting the CUDA device: %s", cudaGetErrorString(err));
+            return 1;
+        }
+
+        // Save initial memory before program exacution for all GPUs 
+        for (int i = 0; i < NUM_GPUS; i++) {
+            cudaMemGetInfo(&freeMemBefore[i], &totalMemBefore[i]);
+        }
+
+        printf("Amout of free memory in GPU %d before exacution is %.4f GB out of %.4f GB total.\n", gpu_id, ((double)freeMemBefore[i])/(1000000000), ((double)totalMemBefore[i])/(1000000000));
+    }
+
+    cudaError_t err = cudaSetDevice(0);
+
+    if (err != cudaSuccess) {
+        printf("Error setting the CUDA device: %s", cudaGetErrorString(err));
+        return 1;
+    }
 
     // Initialize and create cuSolver handler 
     cusolverDnHandle_t solver_handle; 
@@ -123,9 +146,6 @@ int main(int argc, char *argv[]) {
     float* x = (float*)malloc(rows_A * sizeof(float)); 
     cudaMemcpy(x, d_b, sizeof(float) * rows_A, cudaMemcpyDeviceToHost); 
 
-    // Get memory after solver execution 
-    cudaMemGetInfo(&freeMemAfter, &totalMemAfter);
-
     // Print results
     if (print_matrices){
         printf("x = \n");
@@ -136,8 +156,22 @@ int main(int argc, char *argv[]) {
         printf("\n");
     }
 
-    // Print memory usage results 
-    printf("Memory used by cuSOLVER function: %.4f GB out of %.4f GB total.\n", ((double)(freeMemBefore - freeMemAfter))/1000000000, ((double)totalMemBefore)/1000000000);
+    // Print memory usage results for all GPUs
+    for (int i = 0; i < NUM_GPUS; i++) {
+        // Set the GPU you want to use
+        int gpu_id = i; // Replace with the GPU ID you want to use
+        cudaError_t err = cudaSetDevice(gpu_id);
+
+        if (err != cudaSuccess) {
+            printf("Error setting the CUDA device: %s", cudaGetErrorString(err));
+            return 1;
+        }
+
+        // Get memory after solver execution for all GPUs
+        cudaMemGetInfo(&freeMemAfter[i], &totalMemAfter[i]);
+
+         printf("Memory used by cuSOLVER function for GPU %d: %.4f GB out of %.4f GB total.\n", gpu_id, ((double)(freeMemBefore[i] - freeMemAfter[i]))/1000000000, ((double)totalMemBefore[i])/1000000000);
+    }
 
     // Free up memory 
     cudaFree(Workspace);
