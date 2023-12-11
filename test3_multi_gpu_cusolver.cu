@@ -7,7 +7,7 @@
 
 int main(int argc, char *argv[]) {
 
-
+    // Ensure matrix dimension was given
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <input_number> (Please enter matrix dimensions n for n x n matrix)\n", argv[0]);
         return 1;
@@ -39,11 +39,13 @@ int main(int argc, char *argv[]) {
     b = (float *)malloc(size_b); 
 
     // Initialize matrix and vector 
+    double max_matrix_val = 1000;
+    double min_matrix_val = -max_matrix_val;
     for (int i = 0; i < n; i++){
         for (int j = 0; j < n; j++){
-            A[n * i + j] = rand() % 100; 
+            A[n * i + j] = (double) rand() / ((double) RAND_MAX + 1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
         }
-        b[i] = rand() % 100; 
+        b[i] = (double) rand() / ((double) RAND_MAX + 1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
     }
 
     // Print initial matrices if desirable
