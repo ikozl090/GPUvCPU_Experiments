@@ -5,7 +5,7 @@
 #include <sys/time.h>
 #include <lapacke.h>
 
-#define NUM_GPUS 2
+#define NUM_GPUS 3
 #define MAX_PRINTABLE_MATRIX_DIM 15
 
 int main(int argc, char *argv[]) {
@@ -24,10 +24,30 @@ int main(int argc, char *argv[]) {
         print_matrices = true; 
     }
 
+    // Variables to keep track of memory usage 
+    size_t freeMemBefore[NUM_GPUS], totalMemBefore[NUM_GPUS], freeMemAfter[NUM_GPUS], totalMemAfter[NUM_GPUS];
+
+    // Display initial and free memory for all GPUs
+    for (int i = 0; i < NUM_GPUS; i++) {
+        // Set the GPU you want to use
+        int gpu_id = i; // Replace with the GPU ID you want to use
+        cudaError_t err = cudaSetDevice(gpu_id);
+
+        if (err != cudaSuccess) {
+            printf("Error setting the CUDA device: %s", cudaGetErrorString(err));
+            return 1;
+        }
+
+        // Save initial memory before program exacution for all GPUs 
+        cudaMemGetInfo(&freeMemBefore[i], &totalMemBefore[i]);
+
+        printf("Amout of free memory in GPU %d before execution is %.4f GB out of %.4f GB total.\n", gpu_id, ((double)freeMemBefore[i])/(1000000000), ((double)totalMemBefore[i])/(1000000000));
+    }
+
     // Linear system size parameters 
     int n = input; // Matrix A is n x n and vector b is n x 1
     int rows_A = n; 
-    int cols_A = n;
+    int cols_A = n; 
     int lda = rows_A; // leading dimension of array
     int ldb = rows_A; // leading dimension of array
     int nrhs = 1; // Number of right-hand sides (i.e., number of b vectors)
@@ -40,13 +60,13 @@ int main(int argc, char *argv[]) {
     b = (float *)malloc(size_b); 
 
     // Initialize matrix and vector 
-    double max_matrix_val = 1000;
-    double min_matrix_val = -max_matrix_val;
+    float max_matrix_val = 10;
+    float min_matrix_val = -max_matrix_val;
     for (int i = 0; i < n; i++){
         for (int j = 0; j < n; j++){
-            A[n * i + j] = (double) rand() / ((double) RAND_MAX + 1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
+            A[n * i + j] = (float) rand() / ((float) RAND_MAX + 1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
         }
-        b[i] = (double) rand() / ((double) RAND_MAX + 1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
+        b[i] = (float) rand() / ((float) RAND_MAX +  1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
     }
 
     // Print initial matrices if desirable
@@ -55,7 +75,7 @@ int main(int argc, char *argv[]) {
         printf("A = \n");
         for (int i = 0; i < rows_A; i++){
             for (int j = 0; j < cols_A; j++){
-                printf(" %f ", A[rows_A * i + j]);
+                printf(" %f ", A[n * i + j]);
             }
             printf("\n");
         } 
@@ -72,43 +92,22 @@ int main(int argc, char *argv[]) {
         Perform Operations on GPU  
     **********************************/
 
-    // Initialize start time variables 
-    struct timeval start_time, end_time; 
-    double run_time;
-    gettimeofday(&start_time, NULL); // Get start time 
-
-    // Variables to keep track of memory usage 
-    size_t freeMemBefore[NUM_GPUS], totalMemBefore[NUM_GPUS], freeMemAfter[NUM_GPUS], totalMemAfter[NUM_GPUS];
-
-    // Allocate GPU memory for matrices 
-    cudaMalloc((void **)&d_A, size_A); 
-    cudaMalloc((void **)&d_b, size_b); 
-
-    // Display initial and free memory for all GPUs
-    for (int i = 0; i < NUM_GPUS; i++) {
-        // Set the GPU you want to use
-        int gpu_id = i; // Replace with the GPU ID you want to use
-        cudaError_t err = cudaSetDevice(gpu_id);
-
-        if (err != cudaSuccess) {
-            printf("Error setting the CUDA device: %s", cudaGetErrorString(err));
-            return 1;
-        }
-
-        // Save initial memory before program exacution for all GPUs 
-        for (int i = 0; i < NUM_GPUS; i++) {
-            cudaMemGetInfo(&freeMemBefore[i], &totalMemBefore[i]);
-        }
-
-        printf("Amout of free memory in GPU %d before exacution is %.4f GB out of %.4f GB total.\n", gpu_id, ((double)freeMemBefore[i])/(1000000000), ((double)totalMemBefore[i])/(1000000000));
-    }
-
+    // Set device to first GPU
     cudaError_t err = cudaSetDevice(0);
 
     if (err != cudaSuccess) {
         printf("Error setting the CUDA device: %s", cudaGetErrorString(err));
         return 1;
     }
+
+    // Initialize start time variables 
+    struct timeval start_time, end_time; 
+    double run_time;
+    gettimeofday(&start_time, NULL); // Get start time 
+
+    // Allocate GPU memory for matrices 
+    cudaMalloc((void **)&d_A, size_A); 
+    cudaMalloc((void **)&d_b, size_b); 
 
     // Initialize and create cuSolver handler 
     cusolverDnHandle_t solver_handle; 
@@ -133,7 +132,7 @@ int main(int argc, char *argv[]) {
     cusolverDnSgetrf(solver_handle, rows_A, cols_A, d_A, lda, Workspace, devIpiv, devInfo); 
 
     // Solve system in LU decomposed form 
-    cusolverDnSgetrs(solver_handle, CUBLAS_OP_N, rows_A, cols_A, d_A, lda, devIpiv, d_b, lda, devInfo); 
+    cusolverDnSgetrs(solver_handle, CUBLAS_OP_N, n, nrhs, d_A, lda, devIpiv, d_b, lda, devInfo); 
     
     // Check devInfo to ensure cuSOLVER routine went well 
     int devInfo_h = 0; // dev info hat 
@@ -170,7 +169,7 @@ int main(int argc, char *argv[]) {
         // Get memory after solver execution for all GPUs
         cudaMemGetInfo(&freeMemAfter[i], &totalMemAfter[i]);
 
-         printf("Memory used by cuSOLVER function for GPU %d: %.4f GB out of %.4f GB total.\n", gpu_id, ((double)(freeMemBefore[i] - freeMemAfter[i]))/1000000000, ((double)totalMemBefore[i])/1000000000);
+        printf("Memory used by cuSOLVER function for GPU %d: %.4f GB out of %.4f GB total.\n", gpu_id, ((double)(freeMemBefore[i] - freeMemAfter[i]))/1000000000, ((double)totalMemBefore[i])/1000000000);
     }
 
     // Free up memory 
@@ -187,27 +186,27 @@ int main(int argc, char *argv[]) {
     // Print running time 
     run_time = (double) (end_time.tv_sec - start_time.tv_sec); 
     run_time += (double) (end_time.tv_usec - start_time.tv_usec)/1000000; 
-    printf("Total run time: %.4f seconds. \n", run_time);
+    printf("Total run tim (GPU): %.4f seconds. \n", run_time);
 
-    printf("Completed Successfully!\n");
+    // Finish run 
+    printf("Completed GPU Run Successfully!\n");
 
     /*********************************
         Perform Operations on CPU  
     **********************************/
 
+    // Initialize variable for matrix operations 
+    int ipiv[n]; // Variable for keeping track of pivot indices 
+    int info; // To keep track of operation status 
+    
     // Initialize start time variables 
     struct timeval start_time_cpu, end_time_cpu; 
     double run_time_cpu;
     gettimeofday(&start_time_cpu, NULL); // Get start time 
 
-    // Initialize variable for matrix operations 
-    int ipiv[n]; // Variable for keeping track of pivot indices 
-    int info; // To keep track of operation status 
-    
-
     // Perform LU decomposition of A
     setenv("OPENBLAS_NUM_THREADS", "1", 1); // Only use one thread for CPU computation 
-    info = LAPACKE_sgetrf(LAPACK_ROW_MAJOR, n, n, A, lda, ipiv);
+    info = LAPACKE_sgetrf(LAPACK_COL_MAJOR, n, n, A, lda, ipiv);
 
     if (info > 0) {
         printf("The factorization has a zero diagonal element %d.\n", info);
@@ -216,7 +215,7 @@ int main(int argc, char *argv[]) {
 
     // Solve the system Ax = b
     setenv("OPENBLAS_NUM_THREADS", "1", 1); // Only use one thread for CPU computation 
-    info = LAPACKE_sgetrs(LAPACK_ROW_MAJOR, 'N', n, nrhs, A, lda, ipiv, b, ldb);
+    info = LAPACKE_sgetrs(LAPACK_COL_MAJOR, 'N', n, nrhs, A, lda, ipiv, b, ldb);
 
     if (info > 0) {
         printf("The solve operation failed %d.\n", info);
@@ -240,6 +239,9 @@ int main(int argc, char *argv[]) {
     run_time_cpu = (double) (end_time_cpu.tv_sec - start_time_cpu.tv_sec); 
     run_time_cpu += (double) (end_time_cpu.tv_usec - start_time_cpu.tv_usec)/1000000; 
     printf("Total run time (CPU): %.4f seconds. \n", run_time_cpu);
+
+    // Finish run
+    printf("Completed CPU Run Successfully!\n");
 
     return 0;
 }
