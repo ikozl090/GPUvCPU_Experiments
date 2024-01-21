@@ -8,6 +8,10 @@
 #define NUM_GPUS 3
 #define MAX_PRINTABLE_MATRIX_DIM 15
 
+#define KB 1024
+#define MB 1048576
+#define GB 1073741824
+
 int main(int argc, char *argv[]) {
 
     // Ensure matrix dimension was given
@@ -34,7 +38,7 @@ int main(int argc, char *argv[]) {
         cudaError_t err = cudaSetDevice(gpu_id);
 
         if (err != cudaSuccess) {
-            printf("Error setting the CUDA device: %s", cudaGetErrorString(err));
+            printf("\nError setting the CUDA device: %s\n", cudaGetErrorString(err));
             return 1;
         }
 
@@ -52,15 +56,26 @@ int main(int argc, char *argv[]) {
     int ldb = rows_A; // leading dimension of array
     int nrhs = 1; // Number of right-hand sides (i.e., number of b vectors)
 
-    // Allocate memory for matrix and vector 
+    // Declare pointers for linear system parameters 
     float *A, *d_A, *b, *d_b; 
-    int size_A = sizeof(float) * rows_A * cols_A; 
-    int size_b = sizeof(float) * lda; 
+    long long int size_A = sizeof(float) * rows_A * cols_A; 
+    long long int size_b = sizeof(float) * lda; 
+    
+    // Allocate memory for matrix and vector 
+    printf("\nAllocating memory for A (%lld bytes / %.2f GB)\n", size_A, ((float) size_A / GB)); 
     A = (float *)malloc(size_A); 
+    if (A == 0) {
+        printf("malloc failed for A!\n");
+    }
+    printf("Allocating memory for b... (%lld bytes / %.2f KB)\n", size_b, ((float) size_b / KB)); 
     b = (float *)malloc(size_b); 
+    if (b == 0) {
+        printf("malloc failed for b!\n");
+    }
+    printf("Memory allocated successfully.\n");
 
     // Initialize matrix and vector 
-    float max_matrix_val = 10;
+    float max_matrix_val = n; // Make value size proportional to matrix dim to avoid having an unsolvable matrix
     float min_matrix_val = -max_matrix_val;
     for (int i = 0; i < n; i++){
         for (int j = 0; j < n; j++){
@@ -72,7 +87,7 @@ int main(int argc, char *argv[]) {
     // Print initial matrices if desirable
     if (print_matrices){
         // Print initialized matrix 
-        printf("A = \n");
+        printf("\nA = \n");
         for (int i = 0; i < rows_A; i++){
             for (int j = 0; j < cols_A; j++){
                 printf(" %f ", A[n * i + j]);
@@ -96,7 +111,7 @@ int main(int argc, char *argv[]) {
     cudaError_t err = cudaSetDevice(0);
 
     if (err != cudaSuccess) {
-        printf("Error setting the CUDA device: %s", cudaGetErrorString(err));
+        printf("\nError setting the CUDA device: %s\n", cudaGetErrorString(err));
         return 1;
     }
 
@@ -106,7 +121,9 @@ int main(int argc, char *argv[]) {
     gettimeofday(&start_time, NULL); // Get start time 
 
     // Allocate GPU memory for matrices 
+    printf("\nAllocating memory on GPU for A (%lld bytes / %.2f GB)\n", size_A, ((float) size_A / GB)); 
     cudaMalloc((void **)&d_A, size_A); 
+    printf("Allocating memory on GPU for b (%lld bytes / %.2f GB)\n", size_A, ((float) size_b / KB)); 
     cudaMalloc((void **)&d_b, size_b); 
 
     // Initialize and create cuSolver handler 
@@ -138,7 +155,7 @@ int main(int argc, char *argv[]) {
     int devInfo_h = 0; // dev info hat 
     cudaMemcpy(&devInfo_h, devInfo, sizeof(int), cudaMemcpyDeviceToHost); // Save devInfo from GPU to devInfo_h on CPU
     if (devInfo_h != 0) {
-        fprintf(stderr, "LU decomposition failed\n"); 
+        fprintf(stderr, "\nLU decomposition failed\n"); 
     }
 
     // Copy results to CPU 
@@ -147,7 +164,7 @@ int main(int argc, char *argv[]) {
 
     // Print results
     if (print_matrices){
-        printf("x = \n");
+        printf("\nx = \n");
         for (int idx = 0; idx < ldb; idx++) {
             printf(" %f ", x[idx]);
             printf("\n");
@@ -156,13 +173,14 @@ int main(int argc, char *argv[]) {
     }
 
     // Print memory usage results for all GPUs
+    printf("\n");
     for (int i = 0; i < NUM_GPUS; i++) {
         // Set the GPU you want to use
         int gpu_id = i; // Replace with the GPU ID you want to use
         cudaError_t err = cudaSetDevice(gpu_id);
 
         if (err != cudaSuccess) {
-            printf("Error setting the CUDA device: %s", cudaGetErrorString(err));
+            printf("\nError setting the CUDA device: %s\n", cudaGetErrorString(err));
             return 1;
         }
 
@@ -186,7 +204,7 @@ int main(int argc, char *argv[]) {
     // Print running time 
     run_time = (double) (end_time.tv_sec - start_time.tv_sec); 
     run_time += (double) (end_time.tv_usec - start_time.tv_usec)/1000000; 
-    printf("Total run tim (GPU): %.4f seconds. \n", run_time);
+    printf("\nTotal run time (GPU): %.4f seconds. \n", run_time);
 
     // Finish run 
     printf("Completed GPU Run Successfully!\n");
@@ -209,7 +227,7 @@ int main(int argc, char *argv[]) {
     info = LAPACKE_sgetrf(LAPACK_COL_MAJOR, n, n, A, lda, ipiv);
 
     if (info > 0) {
-        printf("The factorization has a zero diagonal element %d.\n", info);
+        printf("\nThe factorization has a zero diagonal element %d.\n", info);
         return -1;
     }
 
@@ -218,13 +236,13 @@ int main(int argc, char *argv[]) {
     info = LAPACKE_sgetrs(LAPACK_COL_MAJOR, 'N', n, nrhs, A, lda, ipiv, b, ldb);
 
     if (info > 0) {
-        printf("The solve operation failed %d.\n", info);
+        printf("\nThe solve operation failed %d.\n", info);
         return -1;
     }
 
     // Print results
     if (print_matrices){
-        printf("x = \n");
+        printf("\nx = \n");
         for (int idx = 0; idx < ldb; idx++) {
             printf(" %f ", b[idx]);
             printf("\n");
@@ -238,7 +256,7 @@ int main(int argc, char *argv[]) {
     // Print running time 
     run_time_cpu = (double) (end_time_cpu.tv_sec - start_time_cpu.tv_sec); 
     run_time_cpu += (double) (end_time_cpu.tv_usec - start_time_cpu.tv_usec)/1000000; 
-    printf("Total run time (CPU): %.4f seconds. \n", run_time_cpu);
+    printf("\nTotal run time (CPU): %.4f seconds. \n", run_time_cpu);
 
     // Finish run
     printf("Completed CPU Run Successfully!\n");
