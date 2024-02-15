@@ -2,10 +2,11 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
-#include <cusolverMg.h> 
-#include <cublas_v2.h>
 #include <sys/time.h>
 #include <lapacke.h>
+
+#include <fstream> // For file operations
+#include <iostream> // For standard I/O (optional, for error handling)
 
 // Define general constants 
 #define NUM_GPUS 3 // Number of available GPUs 
@@ -16,19 +17,11 @@
 #define MB 1048576
 #define GB 1073741824
 
-int main(int argc, char *argv[]) {
-
-    // Ensure matrix dimension was given
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <input_number> (Please enter matrix dimensions n for n x n matrix)\n", argv[0]);
-        return 1;
-    }
-
-    int input = atoi(argv[1]);  // Convert the argument to an integer
+void cusolver(int dim, double times[2]) {
 
     // Print matrices if below max printable dimension 
     bool print_matrices = false;
-    if (input <= MAX_PRINTABLE_MATRIX_DIM) {
+    if (dim <= MAX_PRINTABLE_MATRIX_DIM) {
         print_matrices = true; 
     }
 
@@ -43,7 +36,6 @@ int main(int argc, char *argv[]) {
 
         if (err != cudaSuccess) {
             printf("\nError setting the CUDA device: %s\n", cudaGetErrorString(err));
-            return 1;
         }
 
         // Save initial memory before program exacution for all GPUs 
@@ -53,7 +45,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Linear system size parameters 
-    int n = input; // Matrix A is n x n and vector b is n x 1
+    int n = dim; // Matrix A is n x n and vector b is n x 1
     int rows_A = n; 
     int cols_A = n; 
     int lda = rows_A; // leading dimension of array
@@ -117,7 +109,6 @@ int main(int argc, char *argv[]) {
 
     if (err != cudaSuccess) {
         printf("\nError setting the CUDA device: %s\n", cudaGetErrorString(err));
-        return 1;
     }
 
     // Initialize start time variables 
@@ -132,21 +123,8 @@ int main(int argc, char *argv[]) {
     cudaMalloc((void **)&d_b, size_b); 
 
     // Initialize and create cuSolver handler 
-    // cusolverDnHandle_t solver_handle; 
-    // cusolverDnCreate(&solver_handle); 
-
-    // Initialize cuSOLVERMG environment
-    cusolverMgHandle_t cusolverMgHandle;
-    cusolverMgCreate(&cusolverMgHandle);
-
-    // Set up multi-GPU environment
-    int devices[NUM_GPUS]; 
-    cudaSetDeviceFlags(cudaDeviceMapHost);
-    for (int i = 0; i < NUM_GPUS; i++) {
-        devices[i] = i; 
-        cudaSetDevice(devices[i]);
-        // Additional device-specific initialization as needed
-    }
+    cusolverDnHandle_t solver_handle; 
+    cusolverDnCreate(&solver_handle); 
 
     // Transfer data from host to device (GPU) 
     cudaMemcpy(d_A, A, size_A, cudaMemcpyHostToDevice); 
@@ -199,7 +177,6 @@ int main(int argc, char *argv[]) {
 
         if (err != cudaSuccess) {
             printf("\nError setting the CUDA device: %s\n", cudaGetErrorString(err));
-            return 1;
         }
 
         // Get memory after solver execution for all GPUs
@@ -217,7 +194,7 @@ int main(int argc, char *argv[]) {
     free(x); 
 
     // Finalize and clean up
-    cusolverMgDestroy(cusolverMgHandle);
+    cusolverDnDestroy(solver_handle);
 
     // Get end time 
     gettimeofday(&end_time, NULL);
@@ -249,7 +226,6 @@ int main(int argc, char *argv[]) {
 
     if (info > 0) {
         printf("\nThe factorization has a zero diagonal element %d.\n", info);
-        return -1;
     }
 
     // Solve the system Ax = b
@@ -258,7 +234,6 @@ int main(int argc, char *argv[]) {
 
     if (info > 0) {
         printf("\nThe solve operation failed %d.\n", info);
-        return -1;
     }
 
     // Print results
@@ -281,6 +256,48 @@ int main(int argc, char *argv[]) {
 
     // Finish run
     printf("Completed CPU Run Successfully!\n");
+
+    // Initialize output 
+    times[0] = run_time;
+    times[1] = run_time_cpu; 
+}
+
+int main(int argc, char *argv[]) {
+    // Ensure matrix dimension was given
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <input_number> (Please enter matrix dimensions n for n x n matrix)\n", argv[0]);
+        return 1;
+    }
+
+    int max_dim = atoi(argv[1]);  // Convert the argument to an integer
+    double times[2]; // Initialize time array
+
+    // Open the file in append mode to prevent overwriting existing content
+    std::ofstream outFile("data.csv", std::ios::app);
+
+    // Check if the file is open
+    if (!outFile.is_open()) {
+        printf("Failed to open the file for writing.");
+        return 1; // Exit with an error code
+    }
+
+    // Write initial row 
+    outFile << "Dimension" << "," << "GPU" << "," << "CPU" << std::endl;
+
+    for (int i = 1000; i <= max_dim; i += 1000) {
+        
+        int mat_dim = i; // Get matrix dimension 
+
+        // Compute times 
+        cusolver(mat_dim, times);
+
+        // Write time values as a comma-separated row
+        outFile << mat_dim << "," << times[0] << "," << times[1] << std::endl; 
+    }
+    
+
+    // Close the file
+    outFile.close();
 
     return 0;
 }

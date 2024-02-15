@@ -2,6 +2,7 @@
 #include <stdlib.h> 
 
 #define GB 1073741824
+#define MB 1048576
 
 int main(int argc, char *argv[]) {
 
@@ -17,7 +18,8 @@ int main(int argc, char *argv[]) {
     printf("Allocating memory (%lld bytes)...\n", size); // Before allocation
 
     // Allocate memory 
-    void* pointer = malloc(size);
+    bool* pointer = (bool *)malloc(size);
+    printf("Size of one bool is %d bytes\n", sizeof(bool));
 
     // Check for errors 
     if (pointer == 0) {
@@ -26,5 +28,19 @@ int main(int argc, char *argv[]) {
     }
 
     printf("malloc completed succesfully with pointer = %p\n", pointer); // After successful allocation 
+
+    int i; 
+    try{
+        for (i = 0; i < size; i++) {
+            pointer[i] = true;
+            if (((i % GB) == 0) && (i > 0)){
+                printf("Assigned %d GB\n", ((i + 1) / GB));
+            }
+        }
+    } catch (...) {
+        printf("Failed assigning memory at index i = %d\n", i); 
+    }
+
+    printf("Successfully filled all allocated memory!\n");
 
 }

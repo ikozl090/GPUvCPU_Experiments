@@ -5,9 +5,11 @@
 #include <sys/time.h>
 #include <lapacke.h>
 
-#define NUM_GPUS 3
-#define MAX_PRINTABLE_MATRIX_DIM 15
+// Define general constants 
+#define NUM_GPUS 3 // Number of available GPUs 
+#define MAX_PRINTABLE_MATRIX_DIM 15 // Max n to print matrix of dim n x n
 
+// Constants for memory magnitudes 
 #define KB 1024
 #define MB 1048576
 #define GB 1073741824
@@ -45,7 +47,7 @@ int main(int argc, char *argv[]) {
         // Save initial memory before program exacution for all GPUs 
         cudaMemGetInfo(&freeMemBefore[i], &totalMemBefore[i]);
 
-        printf("Amout of free memory in GPU %d before execution is %.4f GB out of %.4f GB total.\n", gpu_id, ((double)freeMemBefore[i])/(1000000000), ((double)totalMemBefore[i])/(1000000000));
+        printf("Amount of free memory in GPU %d before execution is %.4f GB out of %.4f GB total.\n", gpu_id, ((double)freeMemBefore[i])/(1000000000), ((double)totalMemBefore[i])/(1000000000));
     }
 
     // Linear system size parameters 
@@ -58,11 +60,11 @@ int main(int argc, char *argv[]) {
 
     // Declare pointers for linear system parameters 
     float *A, *d_A, *b, *d_b; 
-    long long int size_A = sizeof(float) * rows_A * cols_A; 
-    long long int size_b = sizeof(float) * lda; 
+    long int size_A = sizeof(float) * rows_A * cols_A; 
+    long int size_b = sizeof(float) * lda; 
     
     // Allocate memory for matrix and vector 
-    printf("\nAllocating memory for A (%lld bytes / %.2f GB)\n", size_A, ((float) size_A / GB)); 
+    printf("\nAllocating memory for A... (%lld bytes / %.2f GB)\n", size_A, ((float) size_A / GB)); 
     A = (float *)malloc(size_A); 
     if (A == 0) {
         printf("malloc failed for A!\n");
@@ -75,14 +77,15 @@ int main(int argc, char *argv[]) {
     printf("Memory allocated successfully.\n");
 
     // Initialize matrix and vector 
-    float max_matrix_val = n; // Make value size proportional to matrix dim to avoid having an unsolvable matrix
+    float max_matrix_val = (float) n; // Make value size proportional to matrix dim to avoid having an unsolvable matrix
     float min_matrix_val = -max_matrix_val;
-    for (int i = 0; i < n; i++){
-        for (int j = 0; j < n; j++){
+    for (long int i = 0; i < n; i++){
+        for (long int j = 0; j < n; j++){
             A[n * i + j] = (float) rand() / ((float) RAND_MAX + 1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
         }
         b[i] = (float) rand() / ((float) RAND_MAX +  1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
     }
+    printf("A and b initialized successfully.\n");
 
     // Print initial matrices if desirable
     if (print_matrices){
@@ -121,9 +124,9 @@ int main(int argc, char *argv[]) {
     gettimeofday(&start_time, NULL); // Get start time 
 
     // Allocate GPU memory for matrices 
-    printf("\nAllocating memory on GPU for A (%lld bytes / %.2f GB)\n", size_A, ((float) size_A / GB)); 
+    printf("\nAllocating memory on GPU for A... (%lld bytes / %.2f GB)\n", size_A, ((float) size_A / GB)); 
     cudaMalloc((void **)&d_A, size_A); 
-    printf("Allocating memory on GPU for b (%lld bytes / %.2f GB)\n", size_A, ((float) size_b / KB)); 
+    printf("Allocating memory on GPU for b... (%lld bytes / %.2f KB)\n", size_b, ((float) size_b / KB)); 
     cudaMalloc((void **)&d_b, size_b); 
 
     // Initialize and create cuSolver handler 
