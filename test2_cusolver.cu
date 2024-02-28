@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
         // Save initial memory before program exacution for all GPUs 
         cudaMemGetInfo(&freeMemBefore[i], &totalMemBefore[i]);
 
-        printf("Amount of free memory in GPU %d before execution is %.4f GB out of %.4f GB total.\n", gpu_id, ((double)freeMemBefore[i])/(1000000000), ((double)totalMemBefore[i])/(1000000000));
+        printf("Amount of free memory in GPU %d before execution is %.4f GB out of %.4f GB total.\n", gpu_id, ((double)freeMemBefore[i])/GB, ((double)totalMemBefore[i])/GB);
     }
 
     // Linear system size parameters 
@@ -190,7 +190,7 @@ int main(int argc, char *argv[]) {
         // Get memory after solver execution for all GPUs
         cudaMemGetInfo(&freeMemAfter[i], &totalMemAfter[i]);
 
-        printf("Memory used by cuSOLVER function for GPU %d: %.4f GB out of %.4f GB total.\n", gpu_id, ((double)(freeMemBefore[i] - freeMemAfter[i]))/1000000000, ((double)totalMemBefore[i])/1000000000);
+        printf("Memory used by cuSOLVER function for GPU %d: %.4f GB out of %.4f GB total.\n", gpu_id, ((double)(freeMemBefore[i] - freeMemAfter[i]))/GB, ((double)totalMemBefore[i])/GB);
     }
 
     // Free up memory 

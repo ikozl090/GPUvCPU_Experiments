@@ -174,20 +174,55 @@ int main(int argc, char *argv[]) {
     enablePeerAccess(nbGpus, deviceList.data());
 
     std::printf("Step 3: Allocate host memory A \n");
-    std::vector<data_type> A(lda * N, 0);
-    std::vector<data_type> B(ldb, 0);
-    std::vector<data_type> X(ldb, 0);
-    std::vector<int> IPIV(N, 0);
+    // std::vector<data_type> A(lda * N, 0);
+    // std::vector<data_type> B(ldb, 0);
+    // std::vector<data_type> X(ldb, 0);
+    // std::vector<int> IPIV(N, 0);
+    // data_type A[lda * N];
+    // data_type B[ldb];
+    // data_type X[ldb];
+    // int IPIV[N];
+
+    // Declare pointers for linear system parameters 
+    data_type *A, *B, *X; 
+    int *IPIV;
+    long int size_A = sizeof(data_type) * lda * N; 
+    long int size_B = sizeof(data_type) * ldb;
+    long int size_X = sizeof(data_type) * N;
+    long int size_IPIV = sizeof(data_type) * lda * N;
+    
+    // Allocate memory for matrix and vector 
+    printf("\tAllocating memory for A... (%lld bytes / %.2f GB)\n", size_A, ((float) size_A / GB)); 
+    A = (data_type *)malloc(size_A); 
+    if (A == 0) {
+        printf("\nmalloc failed for A!\n");
+    }
+    printf("\tAllocating memory for b... (%lld bytes / %.2f KB)\n", size_B, ((float) size_B / KB)); 
+    B = (data_type *)malloc(size_B); 
+    if (B == 0) {
+        printf("\nmalloc failed for b!\n");
+    }
+    printf("\tAllocating memory for x... (%lld bytes / %.2f KB)\n", size_X, ((float) size_X / KB)); 
+    X = (data_type *)malloc(size_X); 
+    if (X == 0) {
+        printf("\nmalloc failed for x!\n");
+    }
+    printf("\tAllocating memory for IPIV... (%lld bytes / %.2f GB)\n", size_IPIV, ((float) size_IPIV / GB)); 
+    IPIV = (int *)malloc(size_IPIV); 
+    if (IPIV == 0) {
+        printf("\nmalloc failed for x!\n");
+    }
+    printf("\tMemory allocated successfully.\n");
 
     std::printf("Step 4: Prepare random matrix \n");
     // Initialize matrix and vector 
-    float max_matrix_val = (float) N; // Make value size proportional to matrix dim to avoid having an unsolvable matrix
-    float min_matrix_val = -max_matrix_val;
+    data_type max_matrix_val = (data_type) N; // Make value size proportional to matrix dim to avoid having an unsolvable matrix
+    data_type min_matrix_val = -max_matrix_val;
     for (long int i = 0; i < N; i++){
         for (long int j = 0; j < N; j++){
-            A[N * i + j] = (float) rand() / ((float) RAND_MAX + 1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
+            A[N * i + j] = (data_type) rand() / ((data_type) RAND_MAX + 1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
         }
-        B[i] = (float) rand() / ((float) RAND_MAX +  1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
+        B[i] = (data_type) rand() / ((data_type) RAND_MAX +  1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
     }
     printf("A and b initialized successfully.\n");
 
@@ -260,7 +295,7 @@ int main(int argc, char *argv[]) {
     std::printf("Step 7: Prepare data on devices \n");
     memcpyH2D<data_type>(nbGpus, deviceList.data(), N, N,
                          /* input */
-                         A.data(), lda,
+                         A, lda,
                          /* output */
                          N,                /* number of columns of global A */
                          T_A,              /* number of columns per column tile */
@@ -270,7 +305,7 @@ int main(int argc, char *argv[]) {
 
     memcpyH2D<data_type>(nbGpus, deviceList.data(), N, 1,
                          /* input */
-                         B.data(), ldb,
+                         B, ldb,
                          /* output */
                          1,                /* number of columns of global A */
                          T_B,              /* number of columns per column tile */
@@ -345,7 +380,7 @@ int main(int argc, char *argv[]) {
                          ldb, /* leading dimension of local B */
                          array_d_B.data(), IB, JB,
                          /* output */
-                         X.data(), /* N-by-1 */
+                         X, /* N-by-1 */
                          ldb);
 
     /* IPIV is consistent with A, use JA and T_A */
@@ -356,7 +391,7 @@ int main(int argc, char *argv[]) {
                    1,   /* leading dimension of local IPIV */
                    array_d_IPIV.data(), 1, JA,
                    /* output */
-                   IPIV.data(), /* 1-by-N */
+                   IPIV, /* 1-by-N */
                    1);
 
     std::printf("End time measurement...\n");
@@ -379,7 +414,7 @@ int main(int argc, char *argv[]) {
         // Save initial memory before program exacution for all GPUs 
         cudaMemGetInfo(&freeMemAfter[i], &totalMemAfter[i]);
 
-        std::printf("GPU %d, Free Memory: %.4f GB / %.4f GB\n", gpu_id, ((double)freeMemAfter[i])/GB, ((double)totalMemAfter[i])/GB);
+        std::printf("GPU %d, Memory Used: %.4f GB / %.4f GB\n", gpu_id, ((double)(freeMemBefore[i] - freeMemAfter[i]))/GB, ((double)totalMemBefore[i])/GB);
     }
     CUDA_CHECK(cudaSetDevice(currentDev));
 
@@ -389,7 +424,7 @@ int main(int argc, char *argv[]) {
 #ifdef SHOW_FORMAT
     /* X is N-by-1 */
     std::printf("X = matlab base-1\n");
-    print_matrix(N, 1, X.data(), ldb, CUBLAS_OP_T);
+    print_matrix(N, 1, X, ldb, CUBLAS_OP_T);
 #endif
 
 #ifdef SHOW_FORMAT
@@ -414,8 +449,8 @@ int main(int argc, char *argv[]) {
 
         max_err = (max_err > err) ? max_err : err;
     }
-    data_type x_nrm_inf = vec_nrm_inf(N, X.data());
-    data_type b_nrm_inf = vec_nrm_inf(N, B.data());
+    data_type x_nrm_inf = vec_nrm_inf(N, X);
+    data_type b_nrm_inf = vec_nrm_inf(N, B);
 
     data_type A_nrm_inf = 4.0;
     data_type rel_err = max_err / (A_nrm_inf * x_nrm_inf + b_nrm_inf);
