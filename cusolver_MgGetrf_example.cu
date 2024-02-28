@@ -165,7 +165,7 @@ int main(int argc, char *argv[]) {
         // Save initial memory before program exacution for all GPUs 
         cudaMemGetInfo(&freeMemBefore[i], &totalMemBefore[i]);
 
-        printf("\tAmount of free memory in GPU %d before execution is %.4f GB out of %.4f GB total.\n", gpu_id, ((double)freeMemBefore[i])/GB, ((double)totalMemBefore[i])/GB);
+        std::printf("\tGPU %d, Free Memory: %.4f GB / %.4f GB\n", gpu_id, ((double)freeMemBefore[i])/GB, ((double)totalMemBefore[i])/GB);
     }
 
     CUDA_CHECK(cudaSetDevice(currentDev));
@@ -379,7 +379,7 @@ int main(int argc, char *argv[]) {
         // Save initial memory before program exacution for all GPUs 
         cudaMemGetInfo(&freeMemAfter[i], &totalMemAfter[i]);
 
-        printf("Amount of free memory in GPU %d after execution is %.4f GB out of %.4f GB total.\n", gpu_id, ((double)freeMemAfter[i])/GB, ((double)totalMemAfter[i])/GB);
+        std::printf("GPU %d, Free Memory: %.4f GB / %.4f GB\n", gpu_id, ((double)freeMemAfter[i])/GB, ((double)totalMemAfter[i])/GB);
     }
     CUDA_CHECK(cudaSetDevice(currentDev));
 
