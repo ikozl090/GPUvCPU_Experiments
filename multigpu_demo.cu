@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 #include <cusolverMg.h> 
+#include "cusolverMg_utils.h"
+#include "cusolver_utils.h"
 #include <cublas_v2.h>
 #include <sys/time.h>
 
@@ -46,10 +48,11 @@ int main(int argc, char *argv[]) {
     int T_B = 1;  
     int lda = rows_A; // leading dimension of array
     int ldb = rows_A; // leading dimension of array
-    int nrhs = 1; // Number of right-hand sides (i.e., number of b vectors)
+    int info = 0; 
 
     // Declare pointers for linear system parameters 
-    float *A, *d_A, *b, *d_b; 
+    float *A, *b, *x; 
+    int *IPIV;
     long int size_A = sizeof(float) * rows_A * cols_A; 
     long int size_b = sizeof(float) * lda; 
     
@@ -158,27 +161,154 @@ int main(int argc, char *argv[]) {
     printf("\nEnabling peer access...\n"); 
 
     // Enabling peer access 
-
+    enablePeerAccess(NUM_GPUS, devices);
 
     printf("\nCreate matrix descriptors for A and b... \n"); 
 
-    // // Create matrix grids 
-    // cusolverStatus_t grid_status_A = cusolverMgCreateDeviceGrid(&grid_A, 1, NUM_GPUS, devices, mapping); 
-    // cusolverStatus_t grid_status_b = cusolverMgCreateDeviceGrid(&grid_b, 1, NUM_GPUS, devices, mapping); 
+    // Create matrix grids 
+    cusolverStatus_t grid_status_A = cusolverMgCreateDeviceGrid(&grid_A, 1, NUM_GPUS, devices, mapping); 
+    cusolverStatus_t grid_status_b = cusolverMgCreateDeviceGrid(&grid_b, 1, NUM_GPUS, devices, mapping); 
 
-    // // Create matrix descriptors 
-    // cusolverStatus_t descr_status_A = cusolverMgCreateMatrixDesc(&descr_A, n, n, n, T_A, float, grid_A);
-    // cusolverStatus_t descr_status_b = cusolverMgCreateMatrixDesc(&descr_b, n, n, n, T_B, float, grid_b);
+    // Verify device grid creation 
+    if (grid_status_A != CUSOLVER_STATUS_SUCCESS || grid_status_b != CUSOLVER_STATUS_SUCCESS) {
+        printf("\nFailed to create grid for A or b.\n");
+    }
 
+    // Create matrix descriptors 
+    cusolverStatus_t descr_status_A = cusolverMgCreateMatrixDesc(&descr_A, n, n, n, T_A, CUDA_R_32F, grid_A);
+    cusolverStatus_t descr_status_b = cusolverMgCreateMatrixDesc(&descr_b, n, n, n, T_B, CUDA_R_32F, grid_b);
 
+    // Verify device grid creation 
+    if (descr_status_A != CUSOLVER_STATUS_SUCCESS || descr_status_b != CUSOLVER_STATUS_SUCCESS) {
+        printf("\nFailed to create matrix descriptor for A or b.\n");
+    }
 
+    // Initialize device pointers 
+    float *array_d_A[NUM_GPUS]; 
+    float *array_d_b[NUM_GPUS]; 
+    int *array_d_IPIV[NUM_GPUS]; 
+    float *array_d_work[NUM_GPUS]; 
+
+    /* A := 0 */
+    createMat<float>(NUM_GPUS, devices, n, /* number of columns of global A */
+                         T_A,              /* number of columns per column tile */
+                         lda,              /* leading dimension of local A */
+                         array_d_A);
+
+    /* b := 0 */
+    createMat<float>(NUM_GPUS, devices, 1, /* number of columns of global A */
+                         T_B,              /* number of columns per column tile */
+                         ldb,              /* leading dimension of local A */
+                         array_d_b);
+
+    /* IPIV := 0, IPIV is consistent with A */
+    createMat<int>(NUM_GPUS, devices, n, /* number of columns of global IPIV */
+                   T_A,                  /* number of columns per column tile */
+                   1,                    /* leading dimension of local IPIV */
+                   array_d_IPIV);
+
+    // Copy data to devices 
+    memcpyH2D<float>(NUM_GPUS, devices, n, n,
+                         /* input */
+                         A, lda,
+                         /* output */
+                         n,                /* number of columns of global A */
+                         T_A,              /* number of columns per column tile */
+                         lda,              /* leading dimension of local A */
+                         array_d_A, /* host pointer array of dimension nbGpus */
+                         IA, JA);
+
+    memcpyH2D<float>(NUM_GPUS, devices, n, 1,
+                         /* input */
+                         b, ldb,
+                         /* output */
+                         1,                /* number of columns of global A */
+                         T_B,              /* number of columns per column tile */
+                         ldb,              /* leading dimension of local A */
+                         array_d_b, /* host pointer array of dimension nbGpus */
+                         IB, JB);
+
+    // Compute needed buffer size for LU factorization 
+    cusolverStatus_t buffer_factorization_status = cusolverMgGetrf_bufferSize(
+        cusolverMgHandle, n, n, reinterpret_cast<void **>(array_d_A), IA, JA, 
+        descr_A, array_d_IPIV, CUDA_R_32F, &lwork_getrf);
+    // Compute needed buffer size for system solver 
+    cusolverMgGetrs_bufferSize(
+        cusolverMgHandle, CUBLAS_OP_N, n, 1, /* NRHS */
+        reinterpret_cast<void **>(array_d_A), IA, JA, descr_A, array_d_IPIV,
+        reinterpret_cast<void **>(array_d_b), IB, JB, descr_b, CUDA_R_32F, &lwork_getrs);
+
+    // Compute workspace size using maximum required 
+    lwork = max(lwork_getrf, lwork_getrs);
+    printf("\tAllocate device workspace, lwork = %lld \n", static_cast<long long>(lwork));
+
+    /* array_d_work[j] points to device workspace of device j */
+    workspaceAlloc(NUM_GPUS, devices,
+                   sizeof(float) * lwork, /* number of bytes per device */
+                   reinterpret_cast<void **>(array_d_work));
+
+    /* sync all devices */
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    CUSOLVER_CHECK(
+        cusolverMgGetrf(cusolverMgHandle, n, n, reinterpret_cast<void **>(array_d_A), IA, JA,
+                        descr_A, array_d_IPIV, CUDA_R_32F,
+                        reinterpret_cast<void **>(array_d_work), lwork, &info /* host */
+                        ));
+    
+    /* sync all devices */
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    /* check if A is singular */
+    if (0 > info) {
+        printf("%d-th parameter is wrong \n", -info);
+        exit(1);
+    }
+
+    CUSOLVER_CHECK(cusolverMgGetrs(cusolverMgHandle, CUBLAS_OP_N, n, 1, /* NRHS */
+                                   reinterpret_cast<void **>(array_d_A), IA, JA, descr_A,
+                                   array_d_IPIV, reinterpret_cast<void **>(array_d_b),
+                                   IB, JB, descr_b ,CUDA_R_32F,
+                                   reinterpret_cast<void **>(array_d_work), lwork,
+                                   &info /* host */
+                                   ));
+
+    /* sync all devices */
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    /* check if parameters are valid */
+    if (0 > info) {
+        printf("%d-th parameter is wrong \n", -info);
+        exit(1);
+    }
+
+    memcpyD2H<float>(NUM_GPUS, devices, n, 1,
+                         /* input */
+                         1,   /* number of columns of global B */
+                         T_B, /* number of columns per column tile */
+                         ldb, /* leading dimension of local B */
+                         array_d_b, IB, JB,
+                         /* output */
+                         x, /* N-by-1 */
+                         ldb);
+
+    /* IPIV is consistent with A, use JA and T_A */
+    memcpyD2H<int>(NUM_GPUS, devices, 1, n,
+                   /* input */
+                   n,   /* number of columns of global IPIV */
+                   T_A, /* number of columns per column tile */
+                   1,   /* leading dimension of local IPIV */
+                   array_d_IPIV, 1, JA,
+                   /* output */
+                   IPIV, /* 1-by-N */
+                   1);
 
     printf("\nDestroying environment...\n"); 
 
     // Destroy cuSOLVERMG environment 
     cusolverStatus_t destroyStatus = cusolverMgDestroy(cusolverMgHandle);
 
-    // Verify successfuly handle deletion 
+    // Verify successful handle deletion 
     if (destroyStatus != CUSOLVER_STATUS_SUCCESS) {
         printf("\nThe resource could not be shut down.\n"); 
         return 1; 
