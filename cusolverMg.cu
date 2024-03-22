@@ -1,52 +1,3 @@
-/*
- * Copyright 2020 NVIDIA Corporation.  All rights reserved.
- *
- * NOTICE TO LICENSEE:
- *
- * This source code and/or documentation ("Licensed Deliverables") are
- * subject to NVIDIA intellectual property rights under U.S. and
- * international Copyright laws.
- *
- * These Licensed Deliverables contained herein is PROPRIETARY and
- * CONFIDENTIAL to NVIDIA and is being provided under the terms and
- * conditions of a form of NVIDIA software license agreement by and
- * between NVIDIA and Licensee ("License Agreement") or electronically
- * accepted by Licensee.  Notwithstanding any terms or conditions to
- * the contrary in the License Agreement, reproduction or disclosure
- * of the Licensed Deliverables to any third party without the express
- * written consent of NVIDIA is prohibited.
- *
- * NOTWITHSTANDING ANY TERMS OR CONDITIONS TO THE CONTRARY IN THE
- * LICENSE AGREEMENT, NVIDIA MAKES NO REPRESENTATION ABOUT THE
- * SUITABILITY OF THESE LICENSED DELIVERABLES FOR ANY PURPOSE.  IT IS
- * PROVIDED "AS IS" WITHOUT EXPRESS OR IMPLIED WARRANTY OF ANY KIND.
- * NVIDIA DISCLAIMS ALL WARRANTIES WITH REGARD TO THESE LICENSED
- * DELIVERABLES, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY,
- * NONINFRINGEMENT, AND FITNESS FOR A PARTICULAR PURPOSE.
- * NOTWITHSTANDING ANY TERMS OR CONDITIONS TO THE CONTRARY IN THE
- * LICENSE AGREEMENT, IN NO EVENT SHALL NVIDIA BE LIABLE FOR ANY
- * SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, OR ANY
- * DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
- * WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
- * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
- * OF THESE LICENSED DELIVERABLES.
- *
- * U.S. Government End Users.  These Licensed Deliverables are a
- * "commercial item" as that term is defined at 48 C.F.R. 2.101 (OCT
- * 1995), consisting of "commercial computer software" and "commercial
- * computer software documentation" as such terms are used in 48
- * C.F.R. 12.212 (SEPT 1995) and is provided to the U.S. Government
- * only as a commercial end item.  Consistent with 48 C.F.R.12.212 and
- * 48 C.F.R. 227.7202-1 through 227.7202-4 (JUNE 1995), all
- * U.S. Government End Users acquire the Licensed Deliverables with
- * only those rights set forth herein.
- *
- * Any use of the Licensed Deliverables in individual and commercial
- * software must include, in the user documentation and internal
- * comments to the code, the above Disclaimer and U.S. Government End
- * Users Notice.
- */
-
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -59,49 +10,22 @@
 
 #include <sys/time.h>
 
+#include <fstream> // For file operations
+#include <iostream> // For standard I/O (optional, for error handling)
+
 // Constants for memory magnitudes 
 #define KB 1024
 #define MB (1024 * KB)
 #define GB (1024 * MB)
 
-/* compute |x|_inf */
-template <typename T> static T vec_nrm_inf(int n, const T *x) {
-    T max_nrm = 0.0;
-    for (int row = 1; row <= n; row++) {
-        T xi = x[IDX1F(row)];
-        max_nrm = (max_nrm > fabs(xi)) ? max_nrm : fabs(xi);
-    }
-    return max_nrm;
-}
+double cusolverMg(int dim) {
 
-/* A is 1D laplacian, return A(N:-1:1, :) */
-// template <typename T> static void gen_1d_laplacian(int N, T *A, int lda) {
-//     for (int J = 1; J <= N; J++) {
-//         /* A(J,J) = 2 */
-//         A[IDX2F(N - J + 1, J, lda)] = 2.0;
-//         if ((J - 1) >= 1) {
-//             /* A(J, J-1) = -1*/
-//             A[IDX2F(N - J + 1, J - 1, lda)] = -1.0;
-//         }
-//         if ((J + 1) <= N) {
-//             /* A(J, J+1) = -1*/
-//             A[IDX2F(N - J + 1, J + 1, lda)] = -1.0;
-//         }
-//     }
-// }
-
-int main(int argc, char *argv[]) {
-    // Ensure matrix dimension was given
-    if (argc != 2) {
-        std::fprintf(stderr, "Usage: %s <input_number> (Please enter matrix dimensions N for N x N matrix)\n", argv[0]);
-        return 1;
-    }
-
-    int input = atoi(argv[1]);  // Convert the argument to an integer
+    /* sync all devices */
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     cusolverMgHandle_t cusolverH = NULL;
 
-    using data_type = float;
+    using data_type = double;
 
     /* maximum number of GPUs */
     const int MAX_NUM_DEVICES = 16;
@@ -109,7 +33,7 @@ int main(int argc, char *argv[]) {
     int nbGpus = 0;
     std::vector<int> deviceList(MAX_NUM_DEVICES);
 
-    const int N = input;
+    const int N = dim;
     const int IA = 1;
     const int JA = 1;
     const int T_A = 256; /* tile size */
@@ -171,7 +95,14 @@ int main(int argc, char *argv[]) {
     CUDA_CHECK(cudaSetDevice(currentDev));
 
     std::printf("step 2: Enable peer access.\n");
-    enablePeerAccess(nbGpus, deviceList.data());
+    try
+    {
+        enablePeerAccess(nbGpus, deviceList.data());
+    }
+    catch(const std::exception& e)
+    {
+        std::printf("Could not enable peer access.\n");
+    }
 
     std::printf("Step 3: Allocate host memory A \n");
     // std::vector<data_type> A(lda * N, 0);
@@ -189,30 +120,30 @@ int main(int argc, char *argv[]) {
     long int size_A = sizeof(data_type) * lda * N; 
     long int size_B = sizeof(data_type) * ldb;
     long int size_X = sizeof(data_type) * N;
-    long int size_IPIV = sizeof(data_type) * lda * N;
+    long int size_IPIV = sizeof(int) * N;
     
     // Allocate memory for matrix and vector 
-    printf("\tAllocating memory for A... (%lld bytes / %.2f GB)\n", size_A, ((float) size_A / GB)); 
+    std::printf("\tAllocating memory for A... (%lld bytes / %.2f GB)\n", size_A, ((float) size_A / GB)); 
     A = (data_type *)malloc(size_A); 
     if (A == 0) {
-        printf("\nmalloc failed for A!\n");
+        std::printf("\nmalloc failed for A!\n");
     }
-    printf("\tAllocating memory for b... (%lld bytes / %.2f KB)\n", size_B, ((float) size_B / KB)); 
+    std::printf("\tAllocating memory for b... (%lld bytes / %.2f KB)\n", size_B, ((float) size_B / KB)); 
     B = (data_type *)malloc(size_B); 
     if (B == 0) {
-        printf("\nmalloc failed for b!\n");
+        std::printf("\nmalloc failed for b!\n");
     }
-    printf("\tAllocating memory for x... (%lld bytes / %.2f KB)\n", size_X, ((float) size_X / KB)); 
+    std::printf("\tAllocating memory for x... (%lld bytes / %.2f KB)\n", size_X, ((float) size_X / KB)); 
     X = (data_type *)malloc(size_X); 
     if (X == 0) {
-        printf("\nmalloc failed for x!\n");
+        std::printf("\nmalloc failed for x!\n");
     }
-    printf("\tAllocating memory for IPIV... (%lld bytes / %.2f GB)\n", size_IPIV, ((float) size_IPIV / GB)); 
+    std::printf("\tAllocating memory for IPIV... (%lld bytes / %.2f GB)\n", size_IPIV, ((float) size_IPIV / GB)); 
     IPIV = (int *)malloc(size_IPIV); 
     if (IPIV == 0) {
-        printf("\nmalloc failed for x!\n");
+        std::printf("\nmalloc failed for x!\n");
     }
-    printf("\tMemory allocated successfully.\n");
+    std::printf("\tMemory allocated successfully.\n");
 
     std::printf("Step 4: Prepare random matrix \n");
     // Initialize matrix and vector 
@@ -225,23 +156,6 @@ int main(int argc, char *argv[]) {
         B[i] = (data_type) rand() / ((data_type) RAND_MAX +  1) * (max_matrix_val - min_matrix_val) + min_matrix_val; 
     }
     printf("A and b initialized successfully.\n");
-
-    // gen_1d_laplacian<data_type>(N, &A[IDX2F(IA, JA, lda)], lda);
-
-#ifdef SHOW_FORMAT
-    std::printf("A = matlab base-1\n");
-    print_matrix(N, N, A.data(), lda);
-#endif
-
-    /* B = ones(N,1) */
-    // for (int row = 1; row <= N; row++) {
-    //     B[IDX1F(row)] = 1.0;
-    // }
-
-#ifdef SHOW_FORMAT
-    std::printf("B = matlab base-1\n");
-    print_matrix(N, 1, B.data(), ldb, CUBLAS_OP_T);
-#endif
 
     std::printf("Step 5: Create matrix descriptors for A and B \n");
 
@@ -435,34 +349,34 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    std::printf("Step 11: Measure residual error |b - A*x| \n");
-    data_type max_err = 0;
-    for (int row = 1; row <= N; row++) {
-        data_type sum = 0.0;
-        for (int col = 1; col <= N; col++) {
-            data_type Aij = A[IDX2F(row, col, lda)];
-            data_type xj = X[IDX1F(col)];
-            sum += Aij * xj;
-        }
-        data_type bi = B[IDX1F(row)];
-        data_type err = fabs(bi - sum);
+    // std::printf("Step 11: Measure residual error |b - A*x| \n");
+    // data_type max_err = 0;
+    // for (int row = 1; row <= N; row++) {
+    //     data_type sum = 0.0;
+    //     for (int col = 1; col <= N; col++) {
+    //         data_type Aij = A[IDX2F(row, col, lda)];
+    //         data_type xj = X[IDX1F(col)];
+    //         sum += Aij * xj;
+    //     }
+    //     data_type bi = B[IDX1F(row)];
+    //     data_type err = fabs(bi - sum);
 
-        max_err = (max_err > err) ? max_err : err;
-    }
-    data_type x_nrm_inf = vec_nrm_inf(N, X);
-    data_type b_nrm_inf = vec_nrm_inf(N, B);
+    //     max_err = (max_err > err) ? max_err : err;
+    // }
+    // data_type x_nrm_inf = vec_nrm_inf(N, X);
+    // data_type b_nrm_inf = vec_nrm_inf(N, B);
 
-    data_type A_nrm_inf = 4.0;
-    data_type rel_err = max_err / (A_nrm_inf * x_nrm_inf + b_nrm_inf);
-    std::printf("\n|b - A*x|_inf = %E\n", max_err);
-    std::printf("|x|_inf = %E\n", x_nrm_inf);
-    std::printf("|b|_inf = %E\n", b_nrm_inf);
-    std::printf("|A|_inf = %E\n", A_nrm_inf);
-    /* relative error is around machine zero  */
-    /* the user can use |b - A*x|/(N*|A|*|x|+|b|) as well */
-    std::printf("|b - A*x|/(|A|*|x|+|b|) = %E\n\n", rel_err);
+    // data_type A_nrm_inf = 4.0;
+    // data_type rel_err = max_err / (A_nrm_inf * x_nrm_inf + b_nrm_inf);
+    // std::printf("\n|b - A*x|_inf = %E\n", max_err);
+    // std::printf("|x|_inf = %E\n", x_nrm_inf);
+    // std::printf("|b|_inf = %E\n", b_nrm_inf);
+    // std::printf("|A|_inf = %E\n", A_nrm_inf);
+    // /* relative error is around machine zero  */
+    // /* the user can use |b - A*x|/(N*|A|*|x|+|b|) as well */
+    // std::printf("|b - A*x|/(|A|*|x|+|b|) = %E\n\n", rel_err);
 
-    std::printf("step 12: Free resources \n");
+    std::printf("Step 11: Free resources \n");
     destroyMat(nbGpus, deviceList.data(), N, /* number of columns of global A */
                T_A,                          /* number of columns per column tile */
                reinterpret_cast<void **>(array_d_A.data()));
@@ -475,5 +389,76 @@ int main(int argc, char *argv[]) {
 
     workspaceFree(nbGpus, deviceList.data(), reinterpret_cast<void **>(array_d_work.data()));
 
-    return EXIT_SUCCESS;
+    // Free CPU resources
+    free(A); 
+    free(B); 
+    free(X); 
+    free(IPIV); 
+
+    // Destroy cuSOLVERMG resources
+    std::printf("\tDestroy cuSolverMg instances\n"); 
+    CUSOLVER_CHECK(cusolverMgDestroyMatrixDesc(descrA)); 
+    CUSOLVER_CHECK(cusolverMgDestroyMatrixDesc(descrB));
+    CUSOLVER_CHECK(cusolverMgDestroyGrid(gridA));
+    CUSOLVER_CHECK(cusolverMgDestroyGrid(gridB));
+    // CUSOLVER_CHECK(cusolverMgDestroy(cusolverH));
+
+    // free(descrA);
+    // free(descrB);
+    // free(gridA);
+    // free(gridB);
+    // //free(mapping);
+    // deviceList.clear(); 
+    // array_d_A.clear(); 
+    // array_d_B.clear(); 
+    // array_d_IPIV.clear(); 
+    // array_d_work.clear(); 
+
+    /* sync all devices */
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    std::printf("\tCompleted freeing resources \n");
+    // Return run time 
+    return run_time;
+}
+
+int main(int argc, char *argv[]) {
+    // Ensure matrix dimension was given
+    if (argc != 3) {
+        std::fprintf(stderr, "Usage: %s <input_number> (Please enter matrix dimensions n for n x n matrix, one for starting dim, one for final)\n", argv[0]);
+        return 1;
+    }
+
+    int start_dim = atoi(argv[1]); // Convert the argument to an integer
+    int max_dim = atoi(argv[2]);  // Convert the argument to an integer
+    double time; // Initialize time array
+
+    // Open the file in append mode to prevent overwriting existing content
+    std::ofstream outFile("data_mg_dp.csv", std::ios::app);
+
+    // Check if the file is open
+    if (!outFile.is_open()) {
+        printf("Failed to open the file for writing.");
+        return 1; // Exit with an error code
+    }
+
+    // Write initial row 
+    outFile << "Dimension" << "," << "GPU" << std::endl;
+
+    for (int i = start_dim; i <= max_dim; i += 1000) {
+        
+        int mat_dim = i; // Get matrix dimension 
+
+        // Compute times 
+        time = cusolverMg(mat_dim);
+        std::printf("Finished run with N = %d\n\n", i);
+
+        // Write time values as a comma-separated row
+        outFile << mat_dim << "," << time << std::endl; 
+    }
+    
+    // Close the file
+    outFile.close();
+
+    return 0;
 }
