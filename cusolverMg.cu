@@ -253,11 +253,11 @@ double cusolverMg(int dim) {
     CUDA_CHECK(cudaDeviceSynchronize());
 
     std::printf("Step 9: Solve A*X = B by GETRF and GETRS \n");
-    CUSOLVER_CHECK(
-        cusolverMgGetrf(cusolverH, N, N, reinterpret_cast<void **>(array_d_A.data()), IA, JA,
-                        descrA, array_d_IPIV.data(), traits<data_type>::cuda_data_type,
-                        reinterpret_cast<void **>(array_d_work.data()), lwork, &info /* host */
-                        ));
+    // CUSOLVER_CHECK(
+    //     cusolverMgGetrf(cusolverH, N, N, reinterpret_cast<void **>(array_d_A.data()), IA, JA,
+    //                     descrA, array_d_IPIV.data(), traits<data_type>::cuda_data_type,
+    //                     reinterpret_cast<void **>(array_d_work.data()), lwork, &info /* host */
+    //                     ));
 
     /* sync all devices */
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -268,13 +268,13 @@ double cusolverMg(int dim) {
         exit(1);
     }
 
-    CUSOLVER_CHECK(cusolverMgGetrs(cusolverH, CUBLAS_OP_N, N, 1, /* NRHS */
-                                   reinterpret_cast<void **>(array_d_A.data()), IA, JA, descrA,
-                                   array_d_IPIV.data(), reinterpret_cast<void **>(array_d_B.data()),
-                                   IB, JB, descrB, traits<data_type>::cuda_data_type,
-                                   reinterpret_cast<void **>(array_d_work.data()), lwork,
-                                   &info /* host */
-                                   ));
+    // CUSOLVER_CHECK(cusolverMgGetrs(cusolverH, CUBLAS_OP_N, N, 1, /* NRHS */
+    //                                reinterpret_cast<void **>(array_d_A.data()), IA, JA, descrA,
+    //                                array_d_IPIV.data(), reinterpret_cast<void **>(array_d_B.data()),
+    //                                IB, JB, descrB, traits<data_type>::cuda_data_type,
+    //                                reinterpret_cast<void **>(array_d_work.data()), lwork,
+    //                                &info /* host */
+    //                                ));
 
     /* sync all devices */
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -397,10 +397,10 @@ double cusolverMg(int dim) {
 
     // Destroy cuSOLVERMG resources
     std::printf("\tDestroy cuSolverMg instances\n"); 
-    CUSOLVER_CHECK(cusolverMgDestroyMatrixDesc(descrA)); 
-    CUSOLVER_CHECK(cusolverMgDestroyMatrixDesc(descrB));
-    CUSOLVER_CHECK(cusolverMgDestroyGrid(gridA));
-    CUSOLVER_CHECK(cusolverMgDestroyGrid(gridB));
+    // CUSOLVER_CHECK(cusolverMgDestroyMatrixDesc(descrA)); 
+    // CUSOLVER_CHECK(cusolverMgDestroyMatrixDesc(descrB));
+    // CUSOLVER_CHECK(cusolverMgDestroyGrid(gridA));
+    // CUSOLVER_CHECK(cusolverMgDestroyGrid(gridB));
     // CUSOLVER_CHECK(cusolverMgDestroy(cusolverH));
 
     // free(descrA);
