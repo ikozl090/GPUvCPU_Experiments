@@ -37,7 +37,7 @@ using data_type = double;
 void ROCBLAS_STATUS(rocblas_status status) {
   switch(status) {
     case rocblas_status_success: 
-    std::printf("Success!\n");
+    std::printf("Success! Status = %d\n", status);
     break; 
 
     case rocblas_status_invalid_size:
@@ -207,7 +207,7 @@ int main(int argc, char *argv[]) {
   rocblas_int N = input;
   rocblas_int lda = N;
   rocblas_int ldb = lda; 
-  rocblas_int info; 
+  rocblas_int info = -777; 
 
   size_t size_A = size_t(lda) * N;          // the size of the array for the matrix
   size_t size_B = size_t(ldb);              // the size of the array for the vector
