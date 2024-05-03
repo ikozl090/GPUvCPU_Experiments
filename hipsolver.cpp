@@ -7,6 +7,8 @@
 #include <vector>
 #include <hip/hip_runtime_api.h> // for hip functions
 #include <rocsolver/rocsolver.h> // for all the rocsolver C interfaces and type declarations
+#include <hipsolver/hipsolver.h> 
+
 
 #ifndef IDX2F
 #define IDX2F(i, j, lda) ((((j)-1) * (static_cast<size_t>(lda))) + ((i)-1))
@@ -37,7 +39,7 @@ using data_type = double;
 void ROCBLAS_STATUS(rocblas_status status) {
   switch(status) {
     case rocblas_status_success: 
-    std::printf("rocBLAS Status Success! Status = %d\n", status);
+    std::printf("Success! Status = %d\n", status);
     break; 
 
     case rocblas_status_invalid_size:
@@ -101,22 +103,14 @@ void ROCBLAS_STATUS(rocblas_status status) {
     break;
 
     default: 
-    std::printf("Unknown failure!\n"); 
+    std::printf("Failure!\n"); 
     break; 
   }
 }
 
-void HIP_ERROR(hipError_t error) {
-  if (error != hipSuccess) {
-    const char *error_name; 
-    error_name = hipGetErrorName(error); 
-    std::printf("Error captured within HIP function: %s\n", error_name);
-  }
-}
-
-void initialize_random_linsys(data_type *A, data_type *B, rocblas_int N, int max_val = 1){
+void initialize_random_linsys(data_type *A, data_type *B, rocblas_int N){
   // Initilize matrix 
-  data_type max_matrix_val = (data_type) max_val; // Make value size proportional to matrix dim to avoid having an unsolvable matrix
+  data_type max_matrix_val = (data_type) 1; // Make value size proportional to matrix dim to avoid having an unsolvable matrix
   data_type min_matrix_val = -max_matrix_val;
   for (long int i = 0; i < N; i++){
       for (long int j = 0; j < N; j++){
@@ -139,21 +133,21 @@ int main(int argc, char *argv[]) {
 
   // Print available devices
   int device_count; 
-  HIP_ERROR(hipGetDeviceCount(&device_count)); 
-  // if (count_error != 0) {
-  //     std::printf("Device count failed with error %d\n", count_error); 
-  // }
+  hipError_t count_error = hipGetDeviceCount(&device_count); 
+  if (count_error != 0) {
+      std::printf("Device count failed with error %d\n", count_error); 
+  }
   std::printf("\nNumber of compute capable devices = %d\n", device_count); 
 
   hipDeviceProp_t device_prop; 
   std::string device_name;
   size_t total_mem_bytes; 
-  // hipError_t device_prop_error;  
+  hipError_t device_prop_error;  
   for (int device_id = 0; device_id < device_count; device_id++) {
-    HIP_ERROR(hipGetDeviceProperties(&device_prop, device_id)); 
-    // if (device_prop_error != 0) {
-    //   std::printf("Device property reading failed with error %d\n", device_prop_error); 
-    // }
+    device_prop_error = hipGetDeviceProperties(&device_prop, device_id); 
+    if (device_prop_error != 0) {
+      std::printf("Device property reading failed with error %d\n", device_prop_error); 
+    }
 
     device_name = device_prop.name; 
     total_mem_bytes = device_prop.totalGlobalMem;
@@ -162,26 +156,26 @@ int main(int argc, char *argv[]) {
 
   // Check initial device ID 
   int initial_device_id; 
-  HIP_ERROR(hipGetDevice(&initial_device_id)); 
-  // if (id_error != 0) {
-  //   std::printf("Device ID reading failed with error %d\n", id_error); 
-  // }
+  hipError_t id_error = hipGetDevice(&initial_device_id); 
+  if (id_error != 0) {
+    std::printf("Device ID reading failed with error %d\n", id_error); 
+  }
   std::printf("\nInital device ID = %d\n", initial_device_id); 
 
   // Set to desired device
   int set_device_id = 1; 
   std::printf("Setting to device %d\n", set_device_id); 
-  HIP_ERROR(hipSetDevice(set_device_id)); 
-  // if (id_set_error != 0) {
-  //   std::printf("Device ID setting failed with error %d\n", id_set_error); 
-  // }
+  hipError_t id_set_error = hipSetDevice(set_device_id); 
+  if (id_set_error != 0) {
+    std::printf("Device ID setting failed with error %d\n", id_set_error); 
+  }
 
   // Confirm new device ID 
   int current_device_id; 
-  HIP_ERROR(hipGetDevice(&current_device_id)); 
-  // if (new_id_error != 0) {
-  //   std::printf("Device ID reading failed with error %d\n", new_id_error); 
-  // }
+  hipError_t new_id_error = hipGetDevice(&current_device_id); 
+  if (new_id_error != 0) {
+    std::printf("Device ID reading failed with error %d\n", new_id_error); 
+  }
   std::printf("New device ID = %d\n", current_device_id);
 
   // return 0;
@@ -191,32 +185,34 @@ int main(int argc, char *argv[]) {
 
   // note the order, call hipSetDevice before hipStreamCreate
   hipStream_t stream;
-  HIP_ERROR(hipStreamCreate(&stream));
+  if(hipStreamCreate(&stream) != hipSuccess) return EXIT_FAILURE;
 
-  rocblas_handle handle;
+  // rocblas_handle handle;
+  hipsolverHandle_t handle; 
+  hipsolverCreate(&handle); 
   // rocblas_status create_status = rocblas_create_handle(&handle);
-  ROCBLAS_STATUS(rocblas_create_handle(&handle));
   // return 0;
   //rocblas_status workspace_create_status = rocblas_set_workspace(handle, 0, 0);
   // std::printf("Create Status: %u\n", create_status); 
 
-  ROCBLAS_STATUS(rocblas_set_stream(handle, stream));
+  if(hipsolverSetStream(handle, stream) != HIPSOLVER_STATUS_SUCCESS) return EXIT_FAILURE;
+  // if(rocblas_set_stream(handle, stream) != rocblas_status_success) return EXIT_FAILURE;
 
-  size_t memory; 
-  ROCBLAS_STATUS(rocblas_get_device_memory_size(handle, &memory));
-  std::printf("Memory = %.2f MB\n", (memory/1e6)); 
+  // size_t memory; 
+  // rocblas_get_device_memory_size(handle, &memory);
+  // std::printf("Memory = %.2f MB\n", (memory/1e6)); 
 
-  // Check if memory is managed automatically
-  bool mem_managed = &rocblas_is_managing_device_memory; 
+  // // Check if memory is managed automatically
+  // bool mem_managed = &rocblas_is_managing_device_memory; 
 
-  std::printf("Automatic memory management status: %d\n", mem_managed); 
+  // std::printf("Automatic memory management status: %d\n", mem_managed); 
 
   // return 0; 
 
-  rocblas_int N = input;
-  rocblas_int lda = N;
-  rocblas_int ldb = lda; 
-  rocblas_int info = -777; 
+  int N = input;
+  int lda = N;
+  int ldb = lda; 
+  int info = -777; 
 
   size_t size_A = size_t(lda) * N;          // the size of the array for the matrix
   size_t size_B = size_t(ldb);              // the size of the array for the vector
@@ -267,8 +263,8 @@ int main(int argc, char *argv[]) {
   hB = (data_type *) malloc(sizeof(data_type) * size_B); 
   hX = (data_type *) malloc(sizeof(data_type) * size_X);
 
-  rocblas_int *hIpiv; // creates array for householder scalars in CPU
-  hIpiv = (rocblas_int *) malloc(sizeof(rocblas_int) * size_piv);
+  int *hIpiv; // creates array for householder scalars in CPU
+  hIpiv = (int *) malloc(sizeof(int) * size_piv);
 
   // Initialize hA with random values 
   // initialize_random_matrix(hA, N, M); 
@@ -276,19 +272,19 @@ int main(int argc, char *argv[]) {
 
   // Define device pointers
   data_type *dA, *dB;  
-  rocblas_int *dIpiv;
+  int *dIpiv;
 
-  HIP_ERROR(hipMalloc(&dA, sizeof(data_type)*size_A));      // allocates memory for matrix in GPU
-  HIP_ERROR(hipMalloc(&dB, sizeof(data_type)*size_B));      // allocates memory for vector in GPU
-  HIP_ERROR(hipMalloc(&dIpiv, sizeof(rocblas_int)*size_piv)); // allocates memory for scalars in GPU
+  hipError_t mallocA_hiperror = hipMalloc(&dA, sizeof(data_type)*size_A);      // allocates memory for matrix in GPU
+  hipError_t mallocB_hiperror = hipMalloc(&dB, sizeof(data_type)*size_B);      // allocates memory for vector in GPU
+  hipError_t mallocIpiv_hiperror = hipMalloc(&dIpiv, sizeof(int)*size_piv); // allocates memory for scalars in GPU
 
   // rocblas_set_workspace(handle, &dA, sizeof(data_type)*size_A);
   // rocblas_set_workspace(handle, &dIpiv, sizeof(rocblas_int)*size_piv);
   // These cause memory allocastion error in rocsolver_dgetrf
 
-  // std::printf("\nmallocA Status = %d\n", mallocA_hiperror); 
-  // std::printf("mallocB Status = %d\n", mallocB_hiperror); 
-  // std::printf("mallocIpiv Status = %d\n", mallocIpiv_hiperror); 
+  std::printf("\nmallocA Status = %d\n", mallocA_hiperror); 
+  std::printf("mallocB Status = %d\n", mallocB_hiperror); 
+  std::printf("mallocIpiv Status = %d\n", mallocIpiv_hiperror); 
   // std::printf("Device Matrix Address = %zu\n", &dA);
 
   // return 0; 
@@ -305,54 +301,66 @@ int main(int argc, char *argv[]) {
   // hipStreamSynchronize(stream);
   // rocblas_set_device_memory_size(handle, 1e9);
 
-  HIP_ERROR(hipMemcpy(dA, hA, sizeof(data_type)*size_A, hipMemcpyHostToDevice));
-  HIP_ERROR(hipMemcpy(dB, hB, sizeof(data_type)*size_B, hipMemcpyHostToDevice));
-  // std::printf("dA memory copy error = %d\n", memcpy_dA_hiperror);
-  // std::printf("dB memory copy error = %d\n", memcpy_dB_hiperror);
+  hipError_t memcpy_dA_hiperror = hipMemcpy(dA, hA, sizeof(data_type)*size_A, hipMemcpyHostToDevice);
+  hipError_t memcpy_dB_hiperror = hipMemcpy(dB, hB, sizeof(data_type)*size_B, hipMemcpyHostToDevice);
+  std::printf("dA memory copy error = %d\n", memcpy_dA_hiperror);
+  std::printf("dB memory copy error = %d\n", memcpy_dB_hiperror);
 
   // return 0; 
 
-  ROCBLAS_STATUS(rocblas_get_device_memory_size(handle, &memory));
-  std::printf("Memory = %.2f MB\n", (memory/1e6)); 
+  // rocblas_get_device_memory_size(handle, &memory);
+  // std::printf("Memory = %.2f MB\n", (memory/1e6)); 
 
   // return 0;
 
   // compute the PLU factorization on the GPU
-  ROCBLAS_STATUS(rocsolver_dgetrf(handle, N, N, dA, lda, dIpiv, &info));
-  if (info > 0) { 
-    std::printf("Upper matrix U is singular!\n");
-  } else if (info != 0) { 
-    std::printf("Unknown error, info = %d but should be 0!\n", info);
-  } else if (info == 0) { 
-    std::printf("PLU factorization successful!\n");
-  }
-  ROCBLAS_STATUS(rocsolver_dgetrs(handle, rocblas_operation_none, N, 1, dA, lda, dIpiv, dB, ldb));
+  // ROCBLAS_STATUS(rocsolver_dgetrf(handle, N, N, dA, lda, dIpiv, &info));
+  // if (info > 0) { 
+  //   std::printf("Upper matrix U is singular!\n");
+  // } else if (info != 0) { 
+  //   std::printf("Unknown error, info = %d but should be 0!\n", info);
+  // } else if (info == 0) { 
+  //   std::printf("PLU factorization successful!\n");
+  // }
+  // ROCBLAS_STATUS(rocsolver_dgetrs(handle, rocblas_operation_none, N, 1, dA, lda, dIpiv, dB, ldb));
+
+  int lwork_getrf = 0, lwork_getrs = 0, lwork; 
+
+  // hipsolverDnDgetrf_bufferSize(handle, N, N, dA, lda, &lwork_getrf);
+  // hipsolverDnDgetrs_bufferSize(handle, N, N, dA, lda, &lwork_getrs);
+
+  hipsolverDgetrf_bufferSize(handle, N, N, dA, lda, &lwork_getrf);
+  hipsolverDgetrs_bufferSize(handle, HIPSOLVER_OP_N, N, 1, dA, lda, dIpiv, dB, ldb, &lwork_getrs); 
+
+  lwork = std::max(lwork_getrf,lwork_getrs);
+  double *dWork; 
+  hipMalloc(&dWork, lwork); 
+
+  hipsolverDgetrf(handle, N, N, dA, lda, dWork, lwork, dIpiv, &info);
+  hipsolverDgetrs(handle, HIPSOLVER_OP_N, N, 1, dA, lda, dIpiv, dB, ldb, dWork, lwork, &info); 
 
   // return 0; 
 
   // copy the results back to CPU
   // hipError_t memcpy_hA_hiperror = hipMemcpy(hA, dA, sizeof(data_type)*size_A, hipMemcpyDeviceToHost);
-  HIP_ERROR(hipMemcpy(hX, dB, sizeof(data_type)*size_X, hipMemcpyDeviceToHost));
+  hipError_t memcpy_hX_hiperror = hipMemcpy(hX, dB, sizeof(data_type)*size_X, hipMemcpyDeviceToHost);
   // hipError_t memcpy_Ipiv_hiperror = hipMemcpy(hIpiv, dIpiv, sizeof(rocblas_int)*size_piv, hipMemcpyDeviceToHost);
   // std::printf("hA memory copy error = %d\n", memcpy_hA_hiperror);
-  // std::printf("hX memory copy error = %d\n", memcpy_hX_hiperror);
+  std::printf("hX memory copy error = %d\n", memcpy_hX_hiperror);
   // std::printf("hIpiv memory copy error = %d\n", memcpy_Ipiv_hiperror);
 
   // the results are now in hA and hIpiv, so you can use them here
 
-  // hipError_t hipfree_dA_hiperror = hipFree(dA);                        // de-allocate GPU memory
-  // hipError_t hipfree_dB_hiperror = hipFree(dB);                        // de-allocate GPU memory
-  // hipError_t hipfree_Ipiv_hiperror = hipFree(dIpiv);                   // de-allocate GPU memory
-  HIP_ERROR(hipFree(dA));
-  HIP_ERROR(hipFree(dB)); 
-  HIP_ERROR(hipFree(dIpiv)); 
+  hipError_t hipfree_dA_hiperror = hipFree(dA);                        // de-allocate GPU memory
+  hipError_t hipfree_dB_hiperror = hipFree(dB);                        // de-allocate GPU memory
+  hipError_t hipfree_Ipiv_hiperror = hipFree(dIpiv);                   // de-allocate GPU memory
 
   // Synchronize the non-default stream before destroying it
-  HIP_ERROR(hipStreamSynchronize(stream));
+  if(hipStreamSynchronize(stream) != hipSuccess) return EXIT_FAILURE;
 
-  HIP_ERROR(hipStreamDestroy(stream));
+  if(hipStreamDestroy(stream) != hipSuccess) return EXIT_FAILURE;
 
-  ROCBLAS_STATUS(rocblas_destroy_handle(handle));     // destroy handle
+  // rocblas_status hipfree_handle_status = rocblas_destroy_handle(handle);     // destroy handle
 
   // Compute residual 
 
