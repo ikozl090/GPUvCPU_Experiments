@@ -4,7 +4,7 @@
 
 #include <algorithm> // for std::min
 #include <stddef.h>  // for size_t
-#include <vector>
+// #include <vector>
 #include <hip/hip_runtime_api.h> // for hip functions
 #include <rocsolver/rocsolver.h> // for all the rocsolver C interfaces and type declarations
 
@@ -42,76 +42,94 @@ void ROCBLAS_STATUS(rocblas_status status) {
 
     case rocblas_status_invalid_size:
     std::printf("Invalid size!\n");
+    throw std::runtime_error("rocBLAS error");  
     break;
 
     case rocblas_status_invalid_pointer: 
     std::printf("Invalid pointer!\n");
+    throw std::runtime_error("rocBLAS error");  
     break; 
 
     case rocblas_status_invalid_handle: 
     std::printf("Invalid handle!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break; 
 
     case rocblas_status_not_implemented: 
     std::printf("Status not implemented!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break; 
 
     case rocblas_status_memory_error: 
     std::printf("Failed internal memory allocation, copy or dealloc!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break; 
 
     case rocblas_status_internal_error: 
     std::printf("Internal error!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break; 
 
     case rocblas_status_size_query_mismatch: 
     std::printf("Size querry mismatch!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break; 
 
     case rocblas_status_size_increased: 
     std::printf("Queried device memory size increased!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break; 
 
     case rocblas_status_size_unchanged: 
     std::printf("Queried device memory size unchanged!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break; 
 
     case rocblas_status_continue: 
     std::printf("Nothing preventing function to proceed!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break;
 
     case rocblas_status_invalid_value: 
     std::printf("Passed argument not valid!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break;
 
     case rocblas_status_check_numerics_fail: 
     std::printf("Will be set if the vector/matrix has a NaN/Infinity/denormal value!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break;
 
     case rocblas_status_excluded_from_build: 
     std::printf("Function is not available in build, likely a function requiring Tensile built without Tensile!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break;
 
     case rocblas_status_perf_degraded: 
     std::printf("Performance degraded due to low device memory!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break; 
 
     case rocblas_status_arch_mismatch: 
     std::printf("The function requires a feature absent from the device architecture!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break;
 
     default: 
     std::printf("Unknown failure!\n"); 
+    throw std::runtime_error("rocBLAS error");  
     break; 
   }
 }
 
-void HIP_ERROR(hipError_t error) {
-  if (error != hipSuccess) {
+void HIP_ERROR(hipError_t error) {                                                                                                                                                  
+  if (error != hipSuccess) {    
     const char *error_name; 
-    error_name = hipGetErrorName(error); 
-    std::printf("Error captured within HIP function: %s\n", error_name);
-  }
+    error_name = hipGetErrorName(error);  
+    std::printf("HIP error %d at %s:%d\n", error, __FILE__, __LINE__);    
+    std::printf("Error name: %s\n", error_name);
+    throw std::runtime_error("HIP error");                                                
+  }                                                                      
 }
 
 void initialize_random_linsys(data_type *A, data_type *B, rocblas_int N, int max_val = 1){
@@ -319,6 +337,7 @@ int main(int argc, char *argv[]) {
 
   // compute the PLU factorization on the GPU
   ROCBLAS_STATUS(rocsolver_dgetrf(handle, N, N, dA, lda, dIpiv, &info));
+  // info > 0 => factorization can't be found, U is singular, info = 0 => some other internal error 
   if (info > 0) { 
     std::printf("Upper matrix U is singular!\n");
   } else if (info != 0) { 
