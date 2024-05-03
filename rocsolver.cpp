@@ -8,6 +8,10 @@
 #include <hip/hip_runtime_api.h> // for hip functions
 #include <rocsolver/rocsolver.h> // for all the rocsolver C interfaces and type declarations
 
+#include <sstream>
+#include <iomanip>
+#include <string>
+
 #ifndef IDX2F
 #define IDX2F(i, j, lda) ((((j)-1) * (static_cast<size_t>(lda))) + ((i)-1))
 #endif /* IDX2F */
@@ -16,12 +20,36 @@
 #define IDX1F(i) ((i)-1)
 #endif /* IDX1F */
 
-// std::string getMemoryString(int mem) { 
-//   std::string memory;
-//   if (mem > 1e9) {
-//     memory = 
-//   }
-// }
+std::string getMemoryString(size_t mem) { 
+
+  std::ostringstream stream;
+  // double memory_num; 
+  std::string memory_string;
+
+  if (mem > 1e12) {
+    stream << std::fixed << std::setprecision(2) << (((double) mem)/1e12);
+    memory_string = stream.str() + " TB"; 
+    // memory = std::format("{:.2f} TB", ((double) mem)/1e12);
+  } else if (mem > 1e9) {
+    // memory_string = std::format("{:.2f} GB", ((double) mem)/1e9);
+    stream << std::fixed << std::setprecision(2) << (((double) mem)/1e9);
+    memory_string = stream.str() + " GB"; 
+  } else if (mem > 1e6) {
+    stream << std::fixed << std::setprecision(2) << (((double) mem)/1e6);
+    memory_string = stream.str() + " MB"; 
+    // memory_string = std::format("{:.2f} MB", ((double) mem)/1e6);
+    // memory = std::to_string(mem)
+  } else if (mem > 1e3) { 
+    stream << std::fixed << std::setprecision(2) << (((double) mem)/1e3);
+    memory_string = stream.str() + " kB"; 
+    // memory_string = std::format("{:.2f} kB", ((double) mem)/1e3);
+  } else {
+    memory_string = std::to_string(mem) + " bytes"; 
+    // memory_string = std::format("{:d} bits", mem);
+  }
+
+  return memory_string;
+}
 
 /* compute |x|_inf */
 template <typename T> static T vec_nrm_inf(int n, const T *x) {
@@ -175,7 +203,7 @@ int main(int argc, char *argv[]) {
 
     device_name = device_prop.name; 
     total_mem_bytes = device_prop.totalGlobalMem;
-    std::printf("Device %d: %s | Available memory = %.2f GB\n", device_id, device_name.c_str(), total_mem_bytes/1e9); 
+    std::printf("Device %d: %s | Available memory = %s\n", device_id, device_name.c_str(), getMemoryString(total_mem_bytes).c_str()); 
   }
 
   // Check initial device ID 
@@ -222,7 +250,7 @@ int main(int argc, char *argv[]) {
 
   size_t memory; 
   ROCBLAS_STATUS(rocblas_get_device_memory_size(handle, &memory));
-  std::printf("Memory = %.2f MB\n", (memory/1e6)); 
+  std::printf("Memory = %s\n", getMemoryString(memory).c_str()); 
 
   // Check if memory is managed automatically
   bool mem_managed = &rocblas_is_managing_device_memory; 
@@ -242,9 +270,9 @@ int main(int argc, char *argv[]) {
   size_t size_piv = size_t(N); // the size of array for the Householder scalars
 
   std::printf("Number of matrix elements = %zu\n", size_A);
-  std::printf("Matrix size = %.1f MB\n", (sizeof(data_type) * size_A) / 1e6);
+  std::printf("Matrix size = %s\n", getMemoryString(sizeof(data_type) * size_A).c_str());
   std::printf("Number of vector elements = %zu\n", size_B);
-  std::printf("Vector size = %.1f kB\n", (sizeof(data_type) * size_B) / 1e3);
+  std::printf("Vector size = %s\n", getMemoryString(sizeof(data_type) * size_B).c_str());
 
   // here is where you would initialize M, N and lda with desired values
 
@@ -331,7 +359,7 @@ int main(int argc, char *argv[]) {
   // return 0; 
 
   ROCBLAS_STATUS(rocblas_get_device_memory_size(handle, &memory));
-  std::printf("Memory = %.2f MB\n", (memory/1e6)); 
+  std::printf("Memory = %s\n", getMemoryString(memory).c_str()); 
 
   // return 0;
 
